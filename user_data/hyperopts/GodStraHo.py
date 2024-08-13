@@ -22,10 +22,10 @@ from freqtrade.optimize.hyperopt_interface import IHyperOpt
 from ta import add_all_ta_features
 from ta.utils import dropna
 import freqtrade.vendor.qtpylib.indicators as qtpylib
-# this is your trading strategy DNA Size
-# you can change it and see the results...
-DNA_SIZE = 1
 
+# This is your trading strategy DNA Size
+# You can change it and see the results...
+DNA_SIZE = 1
 
 GodGenes = ["open", "high", "low", "close", "volume", "volume_adi", "volume_obv",
             "volume_cmf", "volume_fi", "volume_mfi", "volume_em", "volume_sma_em", "volume_vpt",
@@ -50,150 +50,83 @@ GodGenes = ["open", "high", "low", "close", "volume", "volume_adi", "volume_obv"
             "momentum_roc", "momentum_ppo", "momentum_ppo_signal", "momentum_ppo_hist",
             "others_dr", "others_dlr", "others_cr"]
 
-
 class GodStraHo(IHyperOpt):
 
     @staticmethod
-    def indicator_space() -> List[Dimension]:
+    def indicator_space(prefix: str) -> List[Dimension]:
         """
-        Define your Hyperopt space for searching buy strategy parameters.
+        Define your Hyperopt space for searching strategy parameters.
         """
-        gene = list()
-
+        gene = []
         for i in range(DNA_SIZE):
-            gene.append(Categorical(GodGenes, name=f'buy-indicator-{i}'))
-            gene.append(Categorical(GodGenes, name=f'buy-cross-{i}'))
-            gene.append(Integer(-1, 101, name=f'buy-int-{i}'))
-            gene.append(Real(-1.1, 1.1, name=f'buy-real-{i}'))
-            # Operations
-            # CA: Crossed Above, CB: Crossed Below,
-            # I: Integer, R: Real, D: Disabled
-            gene.append(Categorical(["D", ">", "<", "=", "CA", "CB",
-                                     ">I", "=I", "<I", ">R", "=R", "<R"], name=f'buy-oper-{i}'))
+            gene.append(Categorical(GodGenes, name=f'{prefix}-indicator-{i}'))
+            gene.append(Categorical(GodGenes, name=f'{prefix}-cross-{i}'))
+            gene.append(Integer(-1, 101, name=f'{prefix}-int-{i}'))
+            gene.append(Real(-1.1, 1.1, name=f'{prefix}-real-{i}'))
+            gene.append(Categorical(["D", ">", "<", "=", "CA", "CB", ">I", "=I", "<I", ">R", "=R", "<R"],
+                                    name=f'{prefix}-oper-{i}'))
         return gene
 
     @staticmethod
-    def buy_strategy_generator(params: Dict[str, Any]) -> Callable:
+    def build_conditions(params: Dict[str, Any], dataframe: DataFrame, prefix: str) -> List:
         """
-        Define the buy strategy parameters to be used by Hyperopt.
+        Build conditions for strategy generation using operation mapping.
         """
-        def populate_entry_trend(dataframe: DataFrame, metadata: dict) -> DataFrame:
-            """
-            Buy strategy Hyperopt will build and use.
-            """
-            conditions = []
-            # GUARDS AND TRENDS
-            for i in range(DNA_SIZE):
+        operations_map = {
+            ">": lambda df_ind, df_crs, int_val, real_val: df_ind > df_crs,
+            "=": lambda df_ind, df_crs, int_val, real_val: np.isclose(df_ind, df_crs),
+            "<": lambda df_ind, df_crs, int_val, real_val: df_ind < df_crs,
+            "CA": lambda df_ind, df_crs, int_val, real_val: qtpylib.crossed_above(df_ind, df_crs),
+            "CB": lambda df_ind, df_crs, int_val, real_val: qtpylib.crossed_below(df_ind, df_crs),
+            ">I": lambda df_ind, df_crs, int_val, real_val: df_ind > int_val,
+            "=I": lambda df_ind, df_crs, int_val, real_val: df_ind == int_val,
+            "<I": lambda df_ind, df_crs, int_val, real_val: df_ind < int_val,
+            ">R": lambda df_ind, df_crs, int_val, real_val: df_ind > real_val,
+            "=R": lambda df_ind, df_crs, int_val, real_val: np.isclose(df_ind, real_val),
+            "<R": lambda df_ind, df_crs, int_val, real_val: df_ind < real_val,
+        }
 
-                OPR = params[f'buy-oper-{i}']
-                IND = params[f'buy-indicator-{i}']
-                CRS = params[f'buy-cross-{i}']
-                INT = params[f'buy-int-{i}']
-                REAL = params[f'buy-real-{i}']
-                DFIND = dataframe[IND]
-                DFCRS = dataframe[CRS]
-
-                if OPR == ">":
-                    conditions.append(DFIND > DFCRS)
-                elif OPR == "=":
-                    conditions.append(np.isclose(DFIND, DFCRS))
-                elif OPR == "<":
-                    conditions.append(DFIND < DFCRS)
-                elif OPR == "CA":
-                    conditions.append(qtpylib.crossed_above(DFIND, DFCRS))
-                elif OPR == "CB":
-                    conditions.append(qtpylib.crossed_below(DFIND, DFCRS))
-                elif OPR == ">I":
-                    conditions.append(DFIND > INT)
-                elif OPR == "=I":
-                    conditions.append(DFIND == INT)
-                elif OPR == "<I":
-                    conditions.append(DFIND < INT)
-                elif OPR == ">R":
-                    conditions.append(DFIND > REAL)
-                elif OPR == "=R":
-                    conditions.append(np.isclose(DFIND, REAL))
-                elif OPR == "<R":
-                    conditions.append(DFIND < REAL)
-
-            if conditions:
-                dataframe.loc[
-                    reduce(lambda x, y: x & y, conditions),
-                    'enter_long'] = 1
-
-            return dataframe
-
-        return populate_entry_trend
-
-    @ staticmethod
-    def sell_indicator_space() -> List[Dimension]:
-        """
-        Define your Hyperopt space for searching sell strategy parameters.
-        """
-        gene = list()
-
+        conditions = []
         for i in range(DNA_SIZE):
-            gene.append(Categorical(GodGenes, name=f'sell-indicator-{i}'))
-            gene.append(Categorical(GodGenes, name=f'sell-cross-{i}'))
-            gene.append(Integer(-1, 101, name=f'sell-int-{i}'))
-            gene.append(Real(-0.01, 1.01, name=f'sell-real-{i}'))
-            # Operations
-            # CA: Crossed Above, CB: Crossed Below,
-            # I: Integer, R: Real, D: Disabled
-            gene.append(Categorical(["D", ">", "<", "=", "CA", "CB",
-                                     ">I", "=I", "<I", ">R", "=R", "<R"], name=f'sell-oper-{i}'))
-        return gene
+            OPR = params[f'{prefix}-oper-{i}']
+            IND = params[f'{prefix}-indicator-{i}']
+            CRS = params[f'{prefix}-cross-{i}']
+            INT = params[f'{prefix}-int-{i}']
+            REAL = params[f'{prefix}-real-{i}']
 
-    @ staticmethod
-    def sell_strategy_generator(params: Dict[str, Any]) -> Callable:
+            condition = operations_map[OPR](dataframe[IND], dataframe[CRS], INT, REAL)
+            conditions.append(condition)
+
+        return conditions
+
+    @staticmethod
+    def strategy_generator(params: Dict[str, Any], prefix: str, signal: str) -> Callable:
         """
-        Define the sell strategy parameters to be used by Hyperopt.
+        Define the strategy parameters to be used by Hyperopt.
         """
-        def populate_exit_trend(dataframe: DataFrame, metadata: dict) -> DataFrame:
+        def populate_trend(dataframe: DataFrame, metadata: dict) -> DataFrame:
             """
-            Sell strategy Hyperopt will build and use.
+            Strategy Hyperopt will build and use.
             """
-            conditions = []
-
-            # GUARDS AND TRENDS
-            for i in range(DNA_SIZE):
-
-                OPR = params[f'sell-oper-{i}']
-                IND = params[f'sell-indicator-{i}']
-                CRS = params[f'sell-cross-{i}']
-                INT = params[f'sell-int-{i}']
-                REAL = params[f'sell-real-{i}']
-                DFIND = dataframe[IND]
-                DFCRS = dataframe[CRS]
-
-                if OPR == ">":
-                    conditions.append(DFIND > DFCRS)
-                elif OPR == "=":
-                    conditions.append(np.isclose(DFIND, DFCRS))
-                elif OPR == "<":
-                    conditions.append(DFIND < DFCRS)
-                elif OPR == "CA":
-                    conditions.append(qtpylib.crossed_above(DFIND, DFCRS))
-                elif OPR == "CB":
-                    conditions.append(qtpylib.crossed_below(DFIND, DFCRS))
-                elif OPR == ">I":
-                    conditions.append(DFIND > INT)
-                elif OPR == "=I":
-                    conditions.append(DFIND == INT)
-                elif OPR == "<I":
-                    conditions.append(DFIND < INT)
-                elif OPR == ">R":
-                    conditions.append(DFIND > REAL)
-                elif OPR == "=R":
-                    conditions.append(np.isclose(DFIND, REAL))
-                elif OPR == "<R":
-                    conditions.append(DFIND < REAL)
-
+            conditions = GodStraHo.build_conditions(params, dataframe, prefix)
             if conditions:
-                dataframe.loc[
-                    reduce(lambda x, y: x & y, conditions),
-                    'exit_long']=1
-
+                dataframe.loc[reduce(lambda x, y: x & y, conditions), signal] = 1
             return dataframe
 
-        return populate_exit_trend
+        return populate_trend
+
+    @staticmethod
+    def buy_strategy_generator(params: Dict[str, Any]) -> Callable:
+        return GodStraHo.strategy_generator(params, prefix='buy', signal='enter_long')
+
+    @staticmethod
+    def sell_strategy_generator(params: Dict[str, Any]) -> Callable:
+        return GodStraHo.strategy_generator(params, prefix='sell', signal='exit_long')
+
+    @staticmethod
+    def indicator_space() -> List[Dimension]:
+        return GodStraHo.indicator_space(prefix='buy')
+
+    @staticmethod
+    def sell_indicator_space() -> List[Dimension]:
+        return GodStraHo.indicator_space(prefix='sell')
